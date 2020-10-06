@@ -1,0 +1,84 @@
+[
+    {
+        "test": "tcp-h2g-100",
+        "tput": 94.47,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-g2h-100",
+        "tput": 95.23,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-h2g-5000",
+        "tput": 4688.2,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-g2h-5000",
+        "tput": 4763.07,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-h2g-10000",
+        "tput": 9244.37,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-g2h-10000",
+        "tput": 9523.38,
+        "retransmits": 0
+    },
+    {
+        "test": "tcp-h2g-0",
+        "tput": 13508.24,
+        "retransmits": 102
+    },
+    {
+        "test": "tcp-g2h-0",
+        "tput": 19028.23,
+        "retransmits": 0
+    },
+    {
+        "test": "udp-h2g-100",
+        "tput": 95.37,
+        "lost": 0,
+        "pps": 1525.91,
+        "jitter": 0.02
+    },
+    {
+        "test": "udp-g2h-100",
+        "tput": 95.21,
+        "lost": 0,
+        "pps": 1523.38,
+        "jitter": 0.01
+    },
+    {
+        "test": "udp-h2g-5000",
+        "tput": 4771.32,
+        "lost": 3780970,
+        "pps": 76341.1,
+        "jitter": 0.03
+    },
+    {
+        "test": "udp-g2h-5000",
+        "tput": 4764.35,
+        "lost": 26,
+        "pps": 76229.66,
+        "jitter": 0.01
+    },
+    {
+        "test": "udp-h2g-10000",
+        "tput": 9536.64,
+        "lost": 7699884,
+        "pps": 152586.14,
+        "jitter": 0.02
+    },
+    {
+        "test": "udp-g2h-10000",
+        "tput": 9536.65,
+        "lost": 0,
+        "pps": 152586.34,
+        "jitter": 0.0
+    }
+]
