@@ -5,9 +5,11 @@
 import os
 import shutil
 import stat
-from pathlib import Path
+
+from subprocess import run, PIPE
+
 from retry.api import retry_call
-import framework.utils as utils
+
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.
@@ -33,19 +35,17 @@ class JailerContext:
     daemonize = None
     extra_args = None
     api_socket_name = None
-    cgroups = None
 
     def __init__(
             self,
             jailer_id,
             exec_file,
-            numa_node=None,
+            numa_node=0,
             uid=1234,
             gid=1234,
             chroot_base=DEFAULT_CHROOT_PATH,
             netns=None,
             daemonize=True,
-            cgroups=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -64,16 +64,11 @@ class JailerContext:
         self.daemonize = daemonize
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
-        self.cgroups = cgroups
 
     def __del__(self):
         """Cleanup this jailer context."""
         self.cleanup()
 
-    # Disabling 'too-many-branches' warning for this function as it needs to
-    # check every argument, so the number of branches will increase
-    # with every new argument.
-    # pylint: disable=too-many-branches
     def construct_param_list(self):
         """Create the list of parameters we want the jailer to start with.
 
@@ -102,9 +97,6 @@ class JailerContext:
             jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
             jailer_param_list.append('--daemonize')
-        if self.cgroups is not None:
-            for cgroup in self.cgroups:
-                jailer_param_list.extend(['--cgroup', str(cgroup)])
         # applying neccessory extra args if needed
         if len(self.extra_args) > 0:
             jailer_param_list.append('--')
@@ -115,14 +107,13 @@ class JailerContext:
                     if key == "api-sock":
                         self.api_socket_name = value
         return jailer_param_list
-    # pylint: enable=too-many-branches
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
         return os.path.join(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
-            Path(self.exec_file).name,
+            FC_BINARY_NAME,
             self.jailer_id
         )
 
@@ -154,12 +145,12 @@ class JailerContext:
                     str(os.major(stat_result.st_rdev)),
                     str(os.minor(stat_result.st_rdev))
                 ]
-                utils.run_cmd(cmd)
+                run(cmd, check=True)
             else:
                 cmd = 'ln -f {} {}'.format(file_path, global_p)
-                utils.run_cmd(cmd)
+                run(cmd, shell=True, check=True)
             cmd = 'chown {}:{} {}'.format(self.uid, self.gid, global_p)
-            utils.run_cmd(cmd)
+            run(cmd, shell=True, check=True)
         return jailed_p
 
     def netns_file_path(self):
@@ -187,7 +178,7 @@ class JailerContext:
             exist_ok=True
         )
         if self.netns:
-            utils.run_cmd('ip netns add {}'.format(self.netns))
+            run('ip netns add {}'.format(self.netns), shell=True, check=True)
 
     def cleanup(self):
         """Clean up this jailer context."""
@@ -196,47 +187,50 @@ class JailerContext:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
-            utils.run_cmd('ip netns del {}'.format(self.netns))
+            _ = run(
+                'ip netns del {}'.format(self.netns),
+                shell=True,
+                stderr=PIPE
+            )
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
         # because we can't remove it unless we're sure there's no other running
         # microVM.
 
-        if self.cgroups:
-            controllers = set()
-
-            # Extract the controller for every cgroup that needs to be set.
-            for cgroup in self.cgroups:
-                controllers.add(cgroup.split('.')[0])
-
-            for controller in controllers:
-                # Obtain the tasks from each cgroup and wait on them before
-                # removing the microvm's associated cgroup folder.
-                try:
-                    retry_call(
-                        f=self._kill_cgroup_tasks,
-                        fargs=[controller],
-                        exceptions=TimeoutError,
-                        max_delay=5
-                    )
-                except TimeoutError:
-                    pass
-
-                # Remove cgroups and sub cgroups.
-                back_cmd = r'-depth -type d -exec rmdir {} \;'
-                cmd = 'find /sys/fs/cgroup/{}/{}/{} {}'.format(
-                    controller,
-                    FC_BINARY_NAME,
-                    self.jailer_id,
-                    back_cmd
+        # Firecracker is interested in these 3 cgroups for the moment.
+        controllers = ('cpu', 'cpuset', 'pids')
+        for controller in controllers:
+            # Obtain the tasks from each cgroup and wait on them before
+            # removing the microvm's associated cgroup folder.
+            try:
+                retry_call(
+                    f=self._kill_crgoup_tasks,
+                    fargs=[controller],
+                    exceptions=TimeoutError,
+                    max_delay=5
                 )
-                # We do not need to know if it succeeded or not; afterall,
-                # we are trying to clean up resources created by the jailer
-                # itself not the testing system.
-                utils.run_cmd(cmd, ignore_return_code=True)
+            except TimeoutError:
+                pass
 
-    def _kill_cgroup_tasks(self, controller):
+            # As the files inside a cgroup aren't real, they can't need
+            # to be removed, that is why 'rm -rf' and 'rmdir' fail.
+            # We only need to remove the cgroup directories. The "-depth"
+            # argument tells find to do a depth first recursion, so that
+            # we remove any sub cgroups first if they are there.
+            back_cmd = r'-depth -type d -exec rmdir {} \;'
+            cmd = 'find /sys/fs/cgroup/{}/{}/{} {}'.format(
+                controller,
+                FC_BINARY_NAME,
+                self.jailer_id,
+                back_cmd
+            )
+            # We do not need to know if it succeeded or not; afterall, we are
+            # trying to clean up resources created by the jailer itself not
+            # the testing system.
+            _ = run(cmd, shell=True, stderr=PIPE)
+
+    def _kill_crgoup_tasks(self, controller):
         """Simulate wait on pid.
 
         Read the tasks file and stay there until /proc/{pid}
@@ -256,9 +250,9 @@ class JailerContext:
             return True
 
         cmd = 'cat {}'.format(tasks_file)
-        result = utils.run_cmd(cmd)
+        tasks = run(cmd, shell=True, stdout=PIPE).stdout.decode('utf-8')
 
-        tasks_split = result.stdout.splitlines()
+        tasks_split = tasks.splitlines()
         for task in tasks_split:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError

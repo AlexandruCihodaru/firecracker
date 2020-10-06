@@ -2,82 +2,101 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring codebase style compliance for Rust and Python."""
 
+from subprocess import run, PIPE
+
 import os
 import platform
 
 import pytest
 import yaml
 
-import framework.utils as utils
 
 SUCCESS_CODE = 0
-MACHINE = platform.machine()
-TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
-           "{}-unknown-linux-musl".format(MACHINE)]
 
 
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
-    MACHINE != "x86_64",
-    reason="no need to test it on multiple platforms"
+    platform.machine() != "x86_64",
+    reason="rustfmt is not available on Rust 1.38 on aarch64"
 )
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
     # Check that the output is empty.
-    _, stdout, _ = utils.run_cmd(
-        'cargo fmt --all -- --check')
-
+    process = run(
+        'cargo fmt --all -- --check',
+        shell=True,
+        check=True,
+        stdout=PIPE
+    )
     # rustfmt prepends `"Diff in"` to the reported output.
-    assert "Diff in" not in stdout
+    assert "Diff in" not in process.stdout.decode('utf-8')
 
 
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
-    MACHINE != "x86_64",
+    platform.machine() != "x86_64",
     reason="no need to test it on multiple platforms"
 )
 def test_python_style():
     """Fail if there's misbehaving Python style in the test system."""
-    # List of linter commands that should be executed for each file
-    linter_cmds = [
-        # Pylint
-        'python3 -m pylint --jobs=0 --persistent=no --score=no ' \
-        '--output-format=colorized --attr-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
-        '--argument-rgx="[a-z_][a-z0-9_]{1,35}$" ' \
-        '--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable=' \
-        'bad-continuation,fixme,too-many-instance-attributes,import-error,' \
-        'too-many-locals,too-many-arguments',
+    # Check style with pylint.
+    # We are using `xargs` for propagating error code triggered by the
+    # actual command to stderr.
+    cmd = r'find ../ -type f -iname "*.py" -not -path "../build/*" ' \
+          r'-print0 | ' \
+          r'xargs -0 -n1 ' \
+          r'python3 -m pylint --jobs=0 --persistent=no --score=no ' \
+          r'--output-format=colorized --attr-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
+          r'--argument-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
+          r'--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable=' \
+          r'bad-continuation,fixme,too-many-instance-attributes,' \
+          r'too-many-locals,too-many-arguments'
+    run(
+        cmd,
+        shell=True,
+        check=True
+    )
 
-        # pycodestyle
-        'python3 -m pycodestyle --show-pep8 --show-source --exclude=../build',
+    # Check style with flake8.
+    # TODO: Uncomment this after https://gitlab.com/pycqa/flake8/issues/406 is
+    # fixed
+    # run('python3 -m flake8 ../', shell=True, check=True)
 
-        # pydocstyle
-        "python3 -m pydocstyle --explain --source"]
+    # Check style with pycodestyle.
+    cmd = r'python3 -m pycodestyle --show-pep8 --show-source ' \
+          r'--exclude=../build ../'
+    run(
+        cmd,
+        shell=True,
+        check=True
+    )
 
-    # Get all *.py files from the project
-    python_files = utils.get_files_from(
-        find_path="..",
-        pattern="*.py",
-        exclude_names=["build"])
+    # Check style with pydocstyle.
+    # pydocstyle's --match-dir option appears to be broken, so we're using
+    # `find` here to exclude the build/ dir.
+    cmd = r'find ../ -type f -iname "*.py" -not -path "../build/*" ' \
+          r'-print0 | ' \
+          r'xargs -0 -n1 ' \
+          r'python3 -m pydocstyle --explain --source'
+    run(
+        cmd,
+        shell=True,
+        check=True
+    )
 
-    # Assert if somehow no python files were found
-    assert len(python_files) != 0
 
-    # Run commands
-    utils.run_cmd_list_async([
-        f"{cmd} {fname}" for cmd in linter_cmds for fname in python_files
-    ])
-
-
-@pytest.mark.parametrize(
-    "target",
-    TARGETS
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="no need to test it on multiple platforms"
 )
-def test_rust_clippy(target):
+def test_rust_clippy():
     """Fails if clippy generates any error, warnings are ignored."""
-    utils.run_cmd(
-        'cargo clippy --target {} --all --profile test'
-        ' -- -D warnings'.format(target))
+    run(
+        'cargo clippy --all --profile test -- -D warnings',
+        shell=True,
+        check=True,
+        stdout=PIPE
+    )
 
 
 def check_swagger_style(yaml_spec):
@@ -91,7 +110,7 @@ def check_swagger_style(yaml_spec):
 
 
 @pytest.mark.skipif(
-    MACHINE != "x86_64",
+    platform.machine() != "x86_64",
     reason="no need to test it on multiple platforms"
 )
 def test_firecracker_swagger():

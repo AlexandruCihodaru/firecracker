@@ -4,7 +4,7 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.43.1"
+ARG RUST_TOOLCHAIN="1.39.0"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
@@ -16,7 +16,7 @@ ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
 
-# Install system dependencies
+# Install system dependecies
 #
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
@@ -27,7 +27,6 @@ RUN apt-get update \
         g++ \
         gcc \
         gcc-aarch64-linux-gnu \
-        git \
         iperf3 \
         iproute2 \
         jq \
@@ -37,6 +36,7 @@ RUN apt-get update \
         libssl-dev \
         lsof \
         make \
+        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
@@ -52,9 +52,7 @@ RUN apt-get update \
         wheel \
     && python3 -m pip install \
         boto3 \
-        dataclasses \
         nsenter \
-        psutil \
         pycodestyle \
         pydocstyle \
         pylint \
@@ -64,7 +62,6 @@ RUN apt-get update \
         requests \
         requests-unixsocket \
         retry \
-        typing-extensions \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain

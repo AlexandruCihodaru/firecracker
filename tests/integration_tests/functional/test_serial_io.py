@@ -6,7 +6,7 @@ from framework.microvm import Serial
 from framework.state_machine import TestState
 
 
-class WaitLogin(TestState):  # pylint: disable=too-few-public-methods
+class WaitLogin(TestState):
     """Initial state when we wait for the login prompt."""
 
     def handle_input(self, serial, input_char) -> TestState:
@@ -18,7 +18,7 @@ class WaitLogin(TestState):  # pylint: disable=too-few-public-methods
         return self
 
 
-class WaitPasswordPrompt(TestState):  # pylint: disable=too-few-public-methods
+class WaitPasswordPrompt(TestState):
     """Wait for the password prompt to be shown."""
 
     def handle_input(self, serial, input_char) -> TestState:
@@ -32,7 +32,7 @@ class WaitPasswordPrompt(TestState):  # pylint: disable=too-few-public-methods
         return self
 
 
-class WaitIDResult(TestState):  # pylint: disable=too-few-public-methods
+class WaitIDResult(TestState):
     """Wait for the console to show the result of the 'id' shell command."""
 
     def handle_input(self, unused_serial, input_char) -> TestState:
@@ -42,10 +42,10 @@ class WaitIDResult(TestState):  # pylint: disable=too-few-public-methods
         return self
 
 
-class TestFinished(TestState):  # pylint: disable=too-few-public-methods
+class TestFinished(TestState):
     """Test complete and successful."""
 
-    def handle_input(self, unused_serial, _) -> TestState:
+    def handle_input(self, unused_serial, input_char) -> TestState:
         """Return self since the test is about to end."""
         return self
 
@@ -58,7 +58,7 @@ def test_serial_console_login(test_microvm_with_ssh):
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    microvm.memory_monitor = None
+    microvm.memory_events_queue = None
 
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(vcpu_count=1,

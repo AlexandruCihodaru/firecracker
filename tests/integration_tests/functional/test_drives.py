@@ -4,9 +4,9 @@
 
 import os
 import platform
-import pytest
+from subprocess import run, CalledProcessError, PIPE
 
-import framework.utils as utils
+import pytest
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -28,16 +28,19 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')
     )
-    test_microvm.add_drive(
-        'scratch',
-        fs.path,
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        is_root_device=False,
+        is_read_only=False
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    _check_block_size(ssh_connection, '/dev/vdb', fs.size())
+    _check_scratch_size(ssh_connection, fs.size())
 
     # Resize the filesystem from 256 MiB (default) to 512 MiB.
     fs.resize(512)
@@ -48,72 +51,10 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    _check_block_size(
+    _check_scratch_size(
         ssh_connection,
-        '/dev/vdb',
         fs.size()
     )
-
-
-def test_device_ordering(test_microvm_with_ssh, network_config):
-    """Verify device ordering.
-
-    The root device should correspond to /dev/vda in the guest and
-    the order of the other devices should match their configuration order.
-    """
-    test_microvm = test_microvm_with_ssh
-    test_microvm.spawn()
-
-    # Add first scratch block device.
-    fs1 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, 'scratch1'),
-        size=128
-    )
-    test_microvm.add_drive(
-        'scratch1',
-        fs1.path
-    )
-
-    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces,
-    # a read-write root file system (this is the second block device added).
-    # The network interface is added after we get a unique MAC and IP.
-    test_microvm.basic_config()
-
-    # Add the third block device.
-    fs2 = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, 'scratch2'),
-        size=512
-    )
-    test_microvm.add_drive(
-        'scratch2',
-        fs2.path
-    )
-
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-
-    test_microvm.start()
-
-    # Determine the size of the microVM rootfs in bytes.
-    try:
-        result = utils.run_cmd(
-            'du --apparent-size --block-size=1 {}'
-            .format(test_microvm.rootfs_file),
-        )
-    except ChildProcessError:
-        pytest.skip('Failed to get microVM rootfs size: {}'
-                    .format(result.stderr))
-
-    assert len(result.stdout.split()) == 2
-    rootfs_size = result.stdout.split('\t')[0]
-
-    # The devices were added in this order: fs1, rootfs, fs2.
-    # However, the rootfs is the root device and goes first,
-    # so we expect to see this order: rootfs, fs1, fs2.
-    # The devices are identified by their size.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    _check_block_size(ssh_connection, '/dev/vda', rootfs_size)
-    _check_block_size(ssh_connection, '/dev/vdb', fs1.size())
-    _check_block_size(ssh_connection, '/dev/vdc', fs2.size())
 
 
 def test_rescan_dev(test_microvm_with_ssh, network_config):
@@ -131,16 +72,19 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
 
     # Add a scratch block device.
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'fs1'))
-    test_microvm.add_drive(
-        'scratch',
-        fs1.path
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False
     )
+    assert session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    _check_block_size(ssh_connection, '/dev/vdb', fs1.size())
+    _check_scratch_size(ssh_connection, fs1.size())
 
     fs2 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'fs2'),
@@ -149,13 +93,12 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
 
     losetup = ['losetup', '--find', '--show', fs2.path]
     loopback_device = None
-    result = None
     try:
-        result = utils.run_cmd(losetup)
-        loopback_device = result.stdout.rstrip()
-    except ChildProcessError:
+        result = run(losetup, check=True, stdout=PIPE, stderr=PIPE)
+        loopback_device = result.stdout.decode('utf-8').rstrip()
+    except CalledProcessError as error:
         pytest.skip('failed to create a lookback device: ' +
-                    f'stdout={result.stdout}, stderr={result.stderr}')
+                    f'stdout={error.stdout}, stderr={error.stderr}')
 
     try:
         response = test_microvm.drive.patch(
@@ -164,10 +107,10 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
         )
         assert session.is_status_no_content(response.status_code)
 
-        _check_block_size(ssh_connection, '/dev/vdb', fs2.size())
+        _check_scratch_size(ssh_connection, fs2.size())
     finally:
         if loopback_device:
-            utils.run_cmd(['losetup', '--detach', loopback_device])
+            run(['losetup', '--detach', loopback_device], check=True)
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
@@ -186,11 +129,13 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'readonly')
     )
-    test_microvm.add_drive(
-        'scratch',
-        fs.path,
+    response = test_microvm.drive.put(
+        drive_id='readonly',
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        is_root_device=False,
         is_read_only=True
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -228,12 +173,16 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
-    test_microvm.add_drive(
-        'rootfs',
-        test_microvm.rootfs_file,
-        root_device=True,
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
+        is_root_device=True,
+        is_read_only=False,
         partuuid='0eaa91a0-01'
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -262,19 +211,27 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     # Add the root block device specified through PARTUUID.
-    test_microvm.add_drive(
-        'rootfs',
-        test_microvm.rootfs_file,
-        root_device=True,
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
+        is_root_device=True,
+        is_read_only=False,
         partuuid='0eaa91a0-01'
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Update the root block device to boot from /dev/vda.
-    test_microvm.add_drive(
-        'rootfs',
-        test_microvm.rootfs_file,
-        root_device=True,
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file
+        ),
+        is_root_device=True,
+        is_read_only=False
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -300,10 +257,13 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')
     )
-    test_microvm.add_drive(
-        'scratch',
-        fs1.path
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False
     )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.start()
 
@@ -324,18 +284,19 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     blksize_cmd = "lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
     _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
-    assert stderr.read() == ''
+    assert stderr.read().decode("utf-8") == ''
     stdout.readline()  # skip "SIZE"
-    assert stdout.readline().strip() == size_bytes_str
+    assert stdout.readline().decode('utf-8').strip() == size_bytes_str
 
 
-def _check_block_size(ssh_connection, dev_path, size):
+def _check_scratch_size(ssh_connection, size):
+    # The scratch block device is /dev/vdb in the guest.
     _, stdout, stderr = ssh_connection.execute_command(
-        'blockdev --getsize64 {}'.format(dev_path)
+        'blockdev --getsize64 /dev/vdb'
     )
 
-    assert stderr.read() == ''
-    assert stdout.readline().strip() == str(size)
+    assert stderr.read().decode('utf-8') == ''
+    assert stdout.readline().decode('utf-8').strip() == str(size)
 
 
 def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
@@ -352,8 +313,8 @@ def _check_drives(test_microvm, assert_dict, keys_array):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     _, stdout, stderr = ssh_connection.execute_command('blockdev --report')
-    assert stderr.read() == ''
+    assert stderr.read().decode('utf-8') == ''
     _process_blockdev_output(
-        stdout.read(),
+        stdout.read().decode('utf-8'),
         assert_dict,
         keys_array)

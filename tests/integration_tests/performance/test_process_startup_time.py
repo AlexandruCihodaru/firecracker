@@ -21,12 +21,15 @@ def test_startup_time(test_microvm_with_api):
 
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)
 
-    # Configure metrics.
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
     metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
-    response = microvm.metrics.put(
-        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
+    response = microvm.logger.put(
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
