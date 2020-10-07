@@ -97,7 +97,6 @@ def run_fio(ssh_connection, mode, bs):
 
 
 @pytest.mark.timeout(ITERATION_DURATION * 1000)
-@pytest.mark.env("benchmark")
 def test_block_device_performance(test_microvm_with_ssh, network_config):
     """Execute block device emulation benchmarking scenarios."""
 
