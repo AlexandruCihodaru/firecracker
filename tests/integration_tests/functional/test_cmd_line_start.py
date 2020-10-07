@@ -11,6 +11,8 @@ import pytest
 
 import framework.utils as utils
 
+import host_tools.logging as log_tools
+
 
 def _configure_vm_from_json(test_microvm, vm_config_file):
     """Configure a microvm using a file sent as command line parameter.
@@ -56,11 +58,18 @@ def test_config_start_with_api(test_microvm_with_ssh, vm_config_file):
 
 @pytest.mark.parametrize(
     "vm_config_file",
-    ["framework/vm_config.json"]
+    ["framework/vm_log_config.json"]
 )
 def test_config_start_no_api(test_microvm_with_ssh, vm_config_file):
     """Test microvm start when API server thread is disabled."""
     test_microvm = test_microvm_with_ssh
+
+    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    test_microvm.create_jailed_resource(log_fifo.path, create_jail=True)
+    test_microvm.create_jailed_resource(metrics_fifo.path, create_jail=True)
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({'no-api': None})
@@ -88,3 +97,7 @@ def test_config_start_no_api(test_microvm_with_ssh, vm_config_file):
         exceptions=RuntimeError,
         tries=10,
         delay=1)
+
+    # Check that microvm was successfully booted.
+    lines = log_fifo.sequential_reader(1)
+    assert lines[0].startswith('Running Firecracker')

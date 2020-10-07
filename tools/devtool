@@ -73,7 +73,7 @@
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="fcuvm/dev:v19"
+DEVCTR_IMAGE="fcuvm/dev:v14"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -139,8 +139,8 @@ say_noln() {
 #
 say_err() {
     [ -t 2 ] && [ -n "$TERM" ] \
-        && echo -e "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
-        || echo -e "[$MY_NAME] $*" 1>&2
+        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
 }
 
 # Send a warning-highlighted text to stdout
@@ -174,17 +174,14 @@ ok_or_die() {
 # Upon returning from this call, the caller can be certain Docker is available.
 #
 ensure_docker() {
-    NEWLINE=$'\n'
-    output=$(which docker 2>&1)
+    which docker > /dev/null 2>&1
     ok_or_die "Docker not found. Aborting." \
         "Please make sure you have Docker (http://docker.com) installed" \
-        "and properly configured.${NEWLINE}" \
-        "Error: $?, command output: ${output}"
+        "and properly configured."
 
-    output=$(docker ps 2>&1)
+    docker ps > /dev/null 2>&1
     ok_or_die "Error accessing Docker. Please make sure the Docker daemon" \
-        "is running and that you are part of the docker group.${NEWLINE}" \
-        "Error: $?, command output: ${output}${NEWLINE}" \
+        "is running and that you are part of the docker group." \
         "For more information, see" \
         "https://docs.docker.com/install/linux/linux-postinstall/"
 }
@@ -234,25 +231,12 @@ ensure_build_dir() {
     done
 }
 
-# Makes sure that Firecracker release binaries were built.
-# This is relevant in the context of stripping the already built release binaries.
-ensure_release_binaries_exist() {
-    target=$1
-    profile=$2
-    firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
-    jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
-
-    # Both binaries must exist for the stripping to be succesgitsful.
-    [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
-    die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
-}
-
 # Fix build/ dir permissions after a privileged container run.
 # Since the privileged cotainer runs as root, any files it creates will be
 # owned by root. This fixes that by recursively changing the ownership of build/
 # to the current user.
 #
-cmd_fix_perms() {
+fix_build_dir_perms() {
     # Yes, running Docker to get elevated privileges, just to chown some files
     # is a dirty hack.
     run_devctr \
@@ -398,15 +382,6 @@ cmd_help() {
     echo "        -l, --libc musl|gnu   Choose the libc flavor against which Firecracker will"
     echo "                              be linked. Default is musl."
     echo ""
-    echo "    strip [--target-libc musl|gnu]"
-    echo "        Strip debug symbols from the Firecracker release binaries."
-    echo ""
-    echo "        --target-libc musl|gnu   Choose the target libc flavor which determines the"
-    echo "                                 toolchain used to build Firecracker release binaries."
-    echo "                                 Stripping will occur only for the Firecracker release"
-    echo "                                 binaries corresponding to the inferred toolchain. Default"
-    echo "                                 is musl."
-    echo ""
     echo "    fmt"
     echo "        Auto-format all Rust source files, to match the Firecracker requirements."
     echo "        This should be used as the last step in every commit, to ensure that the"
@@ -434,13 +409,9 @@ cmd_help() {
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
-    echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
-    echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
-    echo "    fix_perms"
-    echo "        Fixes permissions when devtool dies in the middle of a privileged session."
     echo ""
 }
 
@@ -501,93 +472,28 @@ cmd_build() {
 
     [ $profile = "release" ] && cargo_args+=("--release")
 
-    # artificially trigger a re-run of the build script,
-    # to make sure that `firecracker --version` reports the latest changes.
-    touch "$FC_ROOT_DIR/build.rs"
-
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
+    #
+    # Note: we need to pass an explicit TARGET_CC to cargo, because the `cc`
+    # crate gets confused for aarch64 musl.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
+        --env TARGET_CC=musl-gcc \
         -- \
         cargo build \
             --target-dir "$CTR_CARGO_TARGET_DIR" \
             "${cargo_args[@]}"
     ret=$?
 
-    [ $ret -ne 0 ] && return $ret
-
-    # Build jailer only in case of musl for compatibility reasons
-    if [ "$libc" == "musl" ];then
-        run_devctr \
-            --user "$(id -u):$(id -g)" \
-            --workdir "$CTR_FC_ROOT_DIR" \
-            -- \
-            cargo build -p jailer \
-                --target-dir "$CTR_CARGO_TARGET_DIR" \
-                "${cargo_args[@]}"
-
-    fi
-
-    ret=$?
-    
     # If `cargo build` was successful, let's copy the binaries to a more
     # accessible location.
     [ $ret -eq 0 ] && {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
         say "Build successful."
         say "Binaries placed under $cargo_bin_dir"
-    }
-
-    return $ret
-}
-
-cmd_strip() {
-    profile="release"
-    libc="musl"
-    target="$(uname -m)-unknown-linux-${libc}"
-
-    # Parse any command line args.
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            "-h"|"--help")  { cmd_help; exit 1;     } ;;
-            "--target-libc")
-                shift
-                [[ "$1" =~ ^(musl|gnu)$ ]] || \
-                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
-                libc="$1"
-                target="$(uname -m)-unknown-linux-${libc}"
-                ;;
-            *)
-                die "Unknown argument: $1. Please use --help for help."
-            ;;
-        esac
-        shift
-    done
-
-    # Check prerequisites
-    ensure_devctr
-    ensure_build_dir
-    ensure_release_binaries_exist $target $profile
-
-    say "Starting stripping the debug symbols for $profile binaries built against $target target."
-    strip_flags="--strip-debug"
-    say "Strip flags: $strip_flags."
-
-    run_devctr \
-      --user "$(id -u):$(id -g)" \
-      -- \
-      strip $strip_flags\
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer"
-    ret=$?
-
-    [ $ret -eq 0 ] && {
-        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
-        say "Stripping was successful."
-        say "Stripped binaries placed under $cargo_bin_dir."
     }
 
     return $ret
@@ -602,14 +508,6 @@ cmd_test() {
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
-            "-c"|"--cpuset-cpus")
-                shift
-                local cpuset_cpus="$1"
-                ;;
-            "-m"|"--cpuset-mems")
-                shift
-                local cpuset_mems="$1"
-                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -623,8 +521,8 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
 
+
     # If we got to here, we've got all we need to continue.
-    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Starting test run ..."
 
     # Testing (running Firecracker via the jailer) needs root access,
@@ -635,10 +533,7 @@ cmd_test() {
         --privileged \
         --security-opt seccomp=unconfined \
         --ulimit core=0 \
-        --ulimit nofile=4096:4096 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
-        --cpuset-cpus="$cpuset_cpus" \
-        --cpuset-mems="$cpuset_mems" \
         -- \
         pytest "$@"
 
@@ -646,7 +541,7 @@ cmd_test() {
 
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
-    cmd_fix_perms
+    fix_build_dir_perms
 
     return $ret
 }
@@ -658,12 +553,14 @@ cmd_shell() {
 
     # By default, we run the container as the current user.
     privileged=false
+    ram_disk=false
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")          { cmd_help; exit 1; } ;;
             "-p"|"--privileged")    { privileged=true;  } ;;
+            "-r"|"--ramdisk")       { ram_disk=true;  } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -675,6 +572,18 @@ cmd_shell() {
     ensure_devctr
     ensure_build_dir
 
+    extra_args=""
+
+    # The ramdisk is used in performance tests.
+    #if [[ $ram_disk = true ]]; then
+        echo "Using ramdisk"
+        umount /mnt/ramdisk
+        mkdir -p /mnt/ramdisk && mount -t tmpfs -o size=4096m tmpfs /mnt/ramdisk
+        mkdir -p /mnt/ramdisk/srv
+        mkdir -p /mnt/ramdisk/tmp
+        extra_args="--volume /mnt/ramdisk/srv:/srv"
+    #fi
+
     if [[ $privileged = true ]]; then
         # If requested, spin up a privileged container.
         #
@@ -684,9 +593,9 @@ cmd_shell() {
             "$CTR_FC_ROOT_DIR will be owned by root."
         run_devctr \
             --privileged \
-            --ulimit nofile=4096:4096 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
+            ${extra_args} \
             -- \
             bash
         ret=$?
@@ -694,7 +603,7 @@ cmd_shell() {
         # Running as root may have created some root-owned files under the build
         # dir. Let's fix that.
         #
-        cmd_fix_perms
+        fix_build_dir_perms
     else
         say "Dropping to shell prompt as user $(whoami) ..."
         say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"
@@ -708,10 +617,10 @@ cmd_shell() {
 
         run_devctr \
             --user "$(id -u):$(id -g)" \
-            --ulimit nofile=4096:4096 \
             --device=/dev/kvm:/dev/kvm \
             --workdir "$CTR_FC_ROOT_DIR" \
             --env PS1="$(whoami)@\h:\w\$ " \
+            ${extra_args} \
             -- \
             bash --norc
         ret=$?
@@ -773,16 +682,16 @@ cmd_prepare_release() {
     ensure_build_dir
 
     # Get current version from the swagger spec.
-    swagger="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
+    swagger="$FC_ROOT_DIR/api_server/swagger/firecracker.yaml"
     curr_ver=$(grep "version: " "$swagger" | awk -F : '{print $2}' | tr -d ' ')
 
     say "Updating from $curr_ver to $version ..."
     get_user_confirmation || die "Aborted."
 
     # Update version in files.
-    files_to_change=("$swagger"                                 \
-                     "$FC_ROOT_DIR/src/firecracker/Cargo.toml"  \
-                     "$FC_ROOT_DIR/src/jailer/Cargo.toml")
+    files_to_change=("$swagger"                         \
+                     "$FC_ROOT_DIR/Cargo.toml"          \
+                     "$FC_ROOT_DIR/jailer/Cargo.toml")
     say "Updating source files:"
     for file in "${files_to_change[@]}"; do
         say "- $file"
@@ -934,13 +843,6 @@ check_swap () {
 	say_warn "WARNING: SWAP enabled"
 }
 
-check_vm() {
-    if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
-        say_warn "WARNING: you are running in a virtual machine." \
-	"Firecracker is not well tested under nested virtualization."
-    fi
-}
-
 cmd_checkenv() {
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -958,7 +860,6 @@ cmd_checkenv() {
     say "Please check $QUICKSTART in case of any error."
     ensure_kvm_rw
     check_kernver
-    check_vm
     say "Checking Host Security Configuration."
     say "Please check $PROD_DOC in case of any error."
     check_KSM

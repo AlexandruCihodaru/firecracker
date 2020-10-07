@@ -49,44 +49,7 @@ For help on usage, see `tools/devtool help`.
 - A bare-metal `Linux` host with `uname -r` >= 4.14.
 - Docker.
 
-## Rustacean Integration Tests
-
-The `pytest`-powered integration tests rely on Firecracker's HTTP API for
-configuring and communicating with the VMM. Alongside these, the `vmm` crate
-also includes several [native-Rust integration tests](../vmm/tests/), which
-exercise its programmatic API without the HTTP integration. `Cargo`
-automatically picks up these tests when `cargo test` is issued. They also count
-towards code coverage.
-
-To run *only* the Rust integration tests:
-
-```bash
-cargo test --test integration_tests
-```
-
-Unlike unit tests, Rust integration tests are each run in a separate process.
-`Cargo` also packages them in a new crate. This has several known side effects:
-1. Only the `pub` functions can be called. This is fine, as it allows the VMM
-   to be consumed as a programmatic user would. If any function is necessary
-   but not `pub`, please consider carefully whether it conceptually *needs* to
-   be in the public interface before making it so.
-1. The correct functioning scenario of the `vmm` implies that it `exit`s with
-   code `0`. This is necessary for proper resource cleanup. However, `cargo`
-   doesn't expect the test process to initiate its own demise, therefore it
-   will not be able to properly collect test output.
-
-   Example:
-
-   ```bash
-   cargo test --test integration_tests
-   running 3 tests
-   test test_setup_serial_device ... ok
-   ```
-
-To learn more about Rustacean integration test, see
-[the Rust book](https://doc.rust-lang.org/book/ch11-03-test-organization.html#integration-tests).
-
-## Adding Python Tests
+## Adding Tests
 
 Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
@@ -116,11 +79,6 @@ images with the `capability:net` tag.
 
 To see what fixtures are available, inspect `conftest.py`.
 
-## Adding Rust Tests
-
-Add a new function annotated with `#[test]` in
-[`integration_tests.rs`](../src/vmm/tests/integration_tests.rs).
-
 ## Adding Microvm Images
 
 Simply place the microvm image under `s3://spec.ccfc.min/img/`.
@@ -133,7 +91,6 @@ s3://<bucket-url>/img/
             <optional_kernel_name.>vmlinux.bin
         fsfiles/
             <rootfs_name>rootfs.ext4
-            <optional_initrd_name.>initrd.img
             <other_fsfile_n>
             ...
         <other_resource_n>
@@ -214,7 +171,7 @@ tools/devtool test
 ## FAQ
 
 `Q1:`
-*I have a shell script that runs my tests and I don't want to rewrite it.*
+*I have a shell script that runs my tests and I don't want to rewrite it.*  
 `A1:`
 Insofar as it makes sense, you should write it as a python test function.
 However, you can always call the script from a shim python test function. You
@@ -224,47 +181,34 @@ as part of your test.
 
 `Q2:`
 *I want to add more tests that I don't want to commit to the Firecracker
-repository.*
+repository.*  
 `A2:`
 Before a testrun or test session, just add your test directory under `tests/`.
 `pytest` will discover all tests in this tree.
 
 `Q3:`
-*I want to have my own test fixtures, and not commit them in the repo.*
+*I want to have my own test fixtures, and not commit them in the repo.*  
 `A3:`
 Add a `conftest.py` file in your test directory, and place your fixtures there.
 `pytest` will bring them into scope for all your tests.
 
 `Q4:`
 *I want to use more/other microvm test images, but I don't want to add them to
-the common s3 bucket.*
+the common s3 bucket.*  
 `A4:`
-Add your custom images to the `build/img` subdirectory in the Firecracker
-source tree. This directory is bind-mounted in the container and used as a
-local image cache.
+There are two options to achieve this:
 
-`Q5:`
-*Is there a way to speed up integration tests execution time?*
-`A5:`
-You can speed up tests execution time with any of these:
-
-1. Run the tests from inside the container and set the environment variable
-   `KEEP_TEST_SESSION` to a non-empty value.
-
-   Each **Testrun** begins by building the firecracker and unit tests binaries,
-   and ends by deleting all the built artifacts.
-   If you run the tests [from inside the container](#running), you can prevent
-   the binaries from being deleted exporting the `KEEP_TEST_SESSION` variable.
-   This way, all the following **Testrun** will be significantly faster as they
-   will not need to rebuild everything.
-   If any Rust source file is changed, the build is done incrementally.
-
-2. Pass the `-k substring` option to Pytest to only run a subset of tests by
-   specifying a part of their name.
-
-3. Only run the tests contained in a file or directory, as specified in the
-   **Running** section.
-
+1. Pass the `-i` / `--local-images-path` option to `testrun.sh`. This will use
+   local versions of the images found in the common s3 bucket.
+2. Leverage pytest to build a self-contained set of tests that use your own test
+   bucket.
+   - Create the s3 test bucket.
+   - Create a new test directory as per `A2`, and a fixture file as per `A3`.
+   - Within the new fixture, instantiate a `MicrovmImageS3Fetcher` for your s3
+     bucket.
+   - Using that `MicrovmImageS3Fetcher` object, create a fixture
+     similar to the `test_microvm_*` fixtures in in `conftest.py`, and pass that
+     as an argument to your tests.
 
 ## Implementation Goals
 
@@ -303,10 +247,18 @@ Pytest was chosen because:
 
 ### Implementation
 
+- Run build tests / unit tests with `--release` once
+  `https://github.com/edef1c/libfringe/issues/75` is fixed.
+- Ensure that we're running in the correct path of the Firecracker repo.
 - Looking into `pytest-ordering` to ensure test order.
+- `#[test] fn enable_disable_stdin_test()` from `vmm/src/lib.rs` fails if
+  `pytest` is allowed to record stdin and stdout. Currently this is worked
+  around by running pytest with `--capture=no`, which uglifies the output.
+- The code would be less repetitive with a function that wraps
+  `subprocess.run('<command>, shell=True, check=True)`.
 - Create an integrated, layered `say` system across the test runner and pytest
   (probably based on an environment variable).
-- Per test function dependency installation would make tests easier to write.
+- Per test function dependency installation would make tests easer to write.
 - Type hinting is used sparsely across tests/* python module. The code would be
   more easily understood with consistent type hints everywhere.
 

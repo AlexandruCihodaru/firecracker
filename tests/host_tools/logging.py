@@ -7,6 +7,7 @@ import os
 import sys
 
 from queue import Queue
+from subprocess import run
 from threading import Thread
 
 
@@ -14,43 +15,22 @@ class Fifo:
     """Facility for creating and working with named pipes (FIFOs)."""
 
     path = None
-    fifo = None
 
-    def __init__(self, path, blocking=False):
+    def __init__(self, path):
         """Create a new named pipe."""
         if os.path.exists(path):
             raise FileExistsError("Named pipe {} already exists.".format(path))
-
-        os.mkfifo(path)
-        if not blocking:
-            fd = os.open(path, os.O_NONBLOCK)
-            self.fifo = os.fdopen(fd, "r")
-        else:
-            self.fifo = open(path, "r")
-
+        cmd = 'mkfifo ' + path
+        run(cmd, shell=True, check=True)
         self.path = path
 
     def sequential_reader(self, max_lines):
-        """Return up to `max_lines` lines from a non blocking fifo.
+        """Return up to `max_lines` lines from fifo `fifo_index`.
 
         :return: A list containing the read lines.
         """
-        return self.fifo.readlines()[:max_lines]
-
-    @property
-    def flags(self):
-        """Return flags of the opened fifo.
-
-        :return An integer with flags of the opened file.
-        """
-        fd = self.fifo.fileno()
-        return fcntl.fcntl(fd, fcntl.F_GETFL)
-
-    @flags.setter
-    def flags(self, flags):
-        """Set new flags for the opened fifo."""
-        fd = self.fifo.fileno()
-        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+        fifo = self._open_nonblocking()
+        return fifo.readlines()[:max_lines]
 
     def threaded_reader(self, check_func, *args):
         """Start a thread to read fifo.
@@ -69,6 +49,14 @@ class Fifo:
         metric_reader_thread.start()
         return exceptions_queue
 
+    def _open_nonblocking(self):
+        """Open a FIFO as read-only and non-blocking."""
+        fifo = open(self.path, "r")
+        fd = fifo.fileno()
+        flag = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+        return fifo
+
     def _do_thread_reader(self, exceptions_queue, check_func, *args):
         """Read from a FIFO opened as read-only.
 
@@ -77,9 +65,10 @@ class Fifo:
         Failures and exceptions are propagated to the main thread
         through the `exceptions_queue`.
         """
+        fifo = self._open_nonblocking()
         max_iter = 20
         while max_iter > 0:
-            data = self.fifo.readline()
+            data = fifo.readline()
             if not data:
                 break
             try:

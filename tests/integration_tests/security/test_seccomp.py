@@ -4,7 +4,7 @@
 
 import os
 
-import framework.utils as utils
+from subprocess import run, PIPE
 
 
 def test_seccomp_ls(bin_seccomp_paths):
@@ -21,9 +21,7 @@ def test_seccomp_ls(bin_seccomp_paths):
     assert os.path.exists(demo_jailer)
 
     # Compile the mini jailer.
-    outcome = utils.run_cmd([demo_jailer, ls_command_path],
-                            no_shell=True,
-                            ignore_return_code=True)
+    outcome = run([demo_jailer, ls_command_path])
 
     # The seccomp filters should send SIGSYS (31) to the binary. `ls` doesn't
     # handle it, so it will exit with error.
@@ -46,9 +44,7 @@ def test_advanced_seccomp_harmless(bin_seccomp_paths):
     assert os.path.exists(demo_advanced_jailer)
     assert os.path.exists(demo_harmless)
 
-    outcome = utils.run_cmd([demo_advanced_jailer, demo_harmless],
-                            no_shell=True,
-                            ignore_return_code=True)
+    outcome = run([demo_advanced_jailer, demo_harmless])
 
     # The demo harmless binary should have terminated gracefully.
     assert outcome.returncode == 0
@@ -70,9 +66,7 @@ def test_advanced_seccomp_malicious(bin_seccomp_paths):
     assert os.path.exists(demo_advanced_jailer)
     assert os.path.exists(demo_malicious)
 
-    outcome = utils.run_cmd([demo_advanced_jailer, demo_malicious],
-                            no_shell=True,
-                            ignore_return_code=True)
+    outcome = run([demo_advanced_jailer, demo_malicious])
 
     # The demo malicious binary should have received `SIGSYS`.
     assert outcome.returncode == -31
@@ -96,11 +90,11 @@ def test_seccomp_applies_to_all_threads(test_microvm_with_api):
     cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
         firecracker_pid
     )
-    process = utils.run_cmd(cmd)
-    threads_out_lines = process.stdout.splitlines()
+    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
+    threads_out_lines = process.stdout.decode('utf-8').splitlines()
     for tid in threads_out_lines:
         # Verify each Firecracker thread Seccomp status
         cmd = 'cat /proc/{}/status | grep Seccomp'.format(tid)
-        process = utils.run_cmd(cmd)
-        seccomp_line = ''.join(process.stdout.split())
+        process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
+        seccomp_line = ''.join(process.stdout.decode('utf-8').split())
         assert seccomp_line == "Seccomp:2"

@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring security vulnerabilities are not present in dependencies."""
 
+from subprocess import run, PIPE
 
 import os
 import platform
-import pytest
 
-import framework.utils as utils
+import pytest
 
 
 @pytest.mark.skipif(
@@ -22,6 +22,10 @@ def test_cargo_audit():
             os.path.dirname(os.path.realpath(__file__)),
             '../../../Cargo.lock')
     )
-
-    # Run command and raise exception if non-zero return code
-    utils.run_cmd('cargo audit -q -f {}'.format(cargo_lock_path))
+    process = run(
+        'cargo audit -q -f {}'.format(cargo_lock_path),
+        shell=True,
+        check=True,
+        stdout=PIPE
+    )
+    assert process.returncode == 0

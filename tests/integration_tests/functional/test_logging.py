@@ -38,8 +38,7 @@ def to_formal_log_level(log_level):
     return ""
 
 
-def check_log_message_format(log_str, instance_id, level, show_level,
-                             show_origin):
+def check_log_message(log_str, instance_id, level, show_level, show_origin):
     """Ensure correctness of the logged message.
 
     Parse the string representing the logs and look for the parts
@@ -122,11 +121,12 @@ def test_error_logs(test_microvm_with_ssh):
 def test_log_config_failure(test_microvm_with_api):
     """Check passing invalid FIFOs is detected and reported as an error."""
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn()
     microvm.basic_config()
 
     response = microvm.logger.put(
-        log_path='invalid log fifo',
+        log_fifo='invalid log fifo',
+        metrics_fifo='invalid metrics fifo',
         level='Info',
         show_level=True,
         show_log_origin=True,
@@ -135,31 +135,53 @@ def test_log_config_failure(test_microvm_with_api):
     assert response.json()['fault_message']
 
 
+def log_file_contains_strings(log_fifo, string_list):
+    """Check if the log file contains all strings in string_list.
+
+    We search for each string in the string_list array only in the
+    first 100 lines of the log.
+    """
+    log_lines = log_fifo.sequential_reader(100)
+    for log_line in log_lines:
+        for text in string_list:
+            if text in log_line:
+                string_list.remove(text)
+                break
+        if not string_list:
+            return True
+
+    return False
+
+
 def test_api_requests_logs(test_microvm_with_api):
     """Test that API requests are logged."""
     microvm = test_microvm_with_api
-    microvm.spawn(create_logger=False)
+    microvm.spawn()
     microvm.basic_config()
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
-        log_path=microvm.create_jailed_resource(log_fifo.path),
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
         level='Info',
         show_level=True,
         show_log_origin=True,
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
-    microvm.start_console_logger(log_fifo)
+
+    expected_log_strings = []
 
     # Check that a Patch request on /machine-config is logged.
     response = microvm.machine_cfg.patch(vcpu_count=4)
     assert microvm.api_session.is_status_no_content(response.status_code)
     # We are not interested in the actual body. Just check that the log
     # message also has the string "body" in it.
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Patch request "
         "on \"/machine-config\" with body"
     )
@@ -171,7 +193,7 @@ def test_api_requests_logs(test_microvm_with_api):
         mem_size_mib=128
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Put request "
         "on \"/machine-config\" with body"
     )
@@ -180,7 +202,7 @@ def test_api_requests_logs(test_microvm_with_api):
     # body.
     response = microvm.machine_cfg.get()
     assert microvm.api_session.is_status_ok(response.status_code)
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Get request "
         "on \"/machine-config\"."
     )
@@ -195,19 +217,19 @@ def test_api_requests_logs(test_microvm_with_api):
     }
     response = microvm.mmds.put(json=dummy_json)
     assert microvm.api_session.is_status_no_content(response.status_code)
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Put request on \"/mmds\"."
     )
 
     response = microvm.mmds.patch(json=dummy_json)
     assert microvm.api_session.is_status_no_content(response.status_code)
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Patch request on \"/mmds\"."
     )
 
     response = microvm.mmds.get()
     assert microvm.api_session.is_status_ok(response.status_code)
-    microvm.check_log_message(
+    expected_log_strings.append(
         "The API server received a Get request on \"/mmds\"."
     )
 
@@ -220,9 +242,42 @@ def test_api_requests_logs(test_microvm_with_api):
     fault_message = "The kernel file cannot be opened: No such file or " \
                     "directory (os error 2)"
     assert fault_message in response.text
-    microvm.check_log_message("Received Error. "
-                              "Status code: 400 Bad Request. "
-                              "Message: {}".format(fault_message))
+    expected_log_strings.append("Received Error. "
+                                "Status code: 400 Bad Request. "
+                                "Message: {}".format(fault_message))
+
+    assert log_file_contains_strings(log_fifo, expected_log_strings)
+
+
+def test_flush_metrics(test_microvm_with_api):
+    """Check the `FlushMetrics` vmm action."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+
+    # Configure logging.
+    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
+    log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    response = microvm.logger.put(
+        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    microvm.start()
+
+    # Empty fifo before triggering `FlushMetrics` so that we get accurate data.
+    _ = metrics_fifo.sequential_reader(100)
+
+    how_many_flushes = 3
+    for _ in range(how_many_flushes):
+        response = microvm.actions.put(action_type='FlushMetrics')
+        assert microvm.api_session.is_status_no_content(response.status_code)
+    lines = metrics_fifo.sequential_reader(how_many_flushes)
+    assert len(lines) == how_many_flushes
 
 
 # pylint: disable=W0102
@@ -233,21 +288,27 @@ def _test_log_config(
         show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
-    microvm.spawn(create_logger=False)
+    microvm.spawn()
+
+    microvm.basic_config()
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
+    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
     if platform.machine() == 'x86_64':
         response = microvm.logger.put(
-            log_path=microvm.create_jailed_resource(log_fifo.path),
+            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin
            )
     else:
         response = microvm.logger.put(
-            log_path=microvm.create_jailed_resource(log_fifo.path),
+            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin,
@@ -255,17 +316,14 @@ def _test_log_config(
 
     assert microvm.api_session.is_status_no_content(response.status_code)
 
-    microvm.start_console_logger(log_fifo)
-
-    microvm.basic_config()
     microvm.start()
 
-    lines = microvm.log_data.splitlines()
+    lines = log_fifo.sequential_reader(20)
     for idx, line in enumerate(lines):
         if idx == 0:
             assert line.startswith("Running Firecracker")
             continue
-        check_log_message_format(
+        check_log_message(
             line,
             microvm.id,
             log_level,
