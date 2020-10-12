@@ -71,8 +71,10 @@ def run_fio(args):
 
     # Start the CPU usage parser
     ssh_connection.execute_command(f"echo \"{cpu_usage}\" > ~/cpu_usage.awk")
-    rc, cpu_usage_output, stderr = ssh_connection.execute_command(
-        f"timeout {ITERATION_DURATION} awk -f ~/cpu_usage.awk")
+    #rc, cpu_usage_output, stderr = ssh_connection.execute_command(
+        
+    ssh_connection.execute_command(
+         f"timeout {ITERATION_DURATION} awk -f ~/cpu_usage.awk > {mode}{bs}_cpu.log&")
 
     # Print the fio command in the log and run it
     rc, stdout, stderr = ssh_connection.execute_command(cmd)
@@ -85,8 +87,8 @@ def run_fio(args):
     os.makedirs(f"results/{mode}{bs}")
 
     ssh_connection.scp_get_file("*.log", f"results/{mode}{bs}/")
-    with open(f"results/{mode}{bs}/{mode}{bs}_cpu.log", "w") as f:
-        f.write(cpu_usage_output.read())
+    with open(f"results/{mode}{bs}/{mode}{bs}_cpu.log", "r") as f:
+	cpu_usage_output = f.read()
 
     rc, stdout, stderr = ssh_connection.execute_command("rm *.log")
     assert rc == 0
@@ -96,7 +98,7 @@ def run_fio(args):
     with open(f"results/{mode}{bs}/output.json", "w") as f:
         f.write(json_output)
 
-    return cpu_usage_output.read()
+    return cpu_usage_output
 
 
 def extract_metrics(cons, ops, job):
