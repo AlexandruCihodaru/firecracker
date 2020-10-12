@@ -88,7 +88,7 @@ def run_fio(args):
 
     ssh_connection.scp_get_file("*.log", f"results/{mode}{bs}/")
     with open(f"results/{mode}{bs}/{mode}{bs}_cpu.log", "r") as f:
-	cpu_usage_output = f.read()
+        cpu_usage_output = f.read()
 
     rc, stdout, stderr = ssh_connection.execute_command("rm *.log")
     assert rc == 0
