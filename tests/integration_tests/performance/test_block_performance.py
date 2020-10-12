@@ -71,7 +71,7 @@ def run_fio(args):
 
     # Start the CPU usage parser
     ssh_connection.execute_command(f"echo \"{cpu_usage}\" > ~/cpu_usage.awk")
-    ssh_connection.execute_command(
+    rc, cpu_usage_output, stderr = ssh_connection.execute_command(
         f"timeout {ITERATION_DURATION} awk -f ~/cpu_usage.awk > {mode}{bs}_cpu.log&")
     #rc, cpu_usage_output, stderr = ssh_connection.execute_command(
     #    f"timeout {ITERATION_DURATION} awk -f ~/cpu_usage.awk")
