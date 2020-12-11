@@ -164,6 +164,8 @@ pub fn setup_boot_regs(
         )
         .map_err(Error::SetCoreRegister)?;
     }
+    let aux: Vec<u64> = vec![2147483648, 2147483649, 2147483650, 2147483651, 2147483904, 2147483905, 2147483906, 2147483907, 2147484160,2147484161,2147484163, 2147484416,2147484162, 2147484417, 2147484418, 2147484419];
+    vcpu.set_one_reg(MPIDR_EL1, aux[cpu_id]).map_err(Error::SetCoreRegister)?;
     Ok(())
 }
 

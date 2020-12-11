@@ -123,6 +123,7 @@ impl KvmVcpu {
         .map_err(Error::REGSConfiguration)?;
 
         self.mpidr = arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::REGSConfiguration)?;
+        info!("mpidr: {}", self.mpidr);
 
         Ok(())
     }
