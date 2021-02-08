@@ -97,4 +97,12 @@ def get_rustflags():
     rustflags = "-D warnings"
     if platform.machine() == "aarch64":
         rustflags += " -C link-arg=-lgcc -C link-arg=-lfdt "
+    if platform.machine() == "x86_64":
+        rustflags += " -C llvm-args=--x86-slh-fence-call-and-ret " + \
+        "-C llvm-args=--x86-slh-indirect " + \
+        "-C llvm-args=--x86-slh-ip " + \
+        "-C llvm-args=--x86-slh-lfence " + \
+        "-C llvm-args=--x86-slh-loads " + \
+        "-C llvm-args=--x86-slh-post-load " + \
+        "-C llvm-args=--x86-speculative-load-hardening"
     return rustflags

@@ -2,6 +2,17 @@
 target = "x86_64-unknown-linux-musl"
 target-dir = "build/cargo_target"
 
+[target.'cfg(any(target_arch="x86_64", target_arch="amd64"))']
+rustflags = [
+	"-C", "llvm-args=--x86-slh-fence-call-and-ret",
+	"-C", "llvm-args=--x86-slh-indirect",
+	"-C", "llvm-args=--x86-slh-ip",
+	"-C", "llvm-args=--x86-slh-lfence",
+	"-C", "llvm-args=--x86-slh-loads",
+	"-C", "llvm-args=--x86-slh-post-load",
+	"-C", "llvm-args=--x86-speculative-load-hardening",
+]
+
 [target.'cfg(any(target_arch="arm", target_arch="aarch64"))']
 # On aarch64 musl depends on some libgcc functions (i.e `__addtf3` and other `*tf3` functions) for logic that uses
 # long double. Such functions are not builtin in the rust compiler, so we need to get them from libgcc.
