@@ -337,14 +337,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernel"
-version = "0.1.0"
-dependencies = [
- "utils 0.1.0",
- "vm-memory 0.1.0",
-]
-
-[[package]]
 name = "kvm-bindings"
 version = "0.3.0"
 source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.3.0-3#640ea4fd7c9fa3bb6317ce73a68f5792c9f1feef"
@@ -373,6 +365,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "libc"
 version = "0.2.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "linux-loader"
+version = "0.2.0"
+source = "git+https://github.com/AlexandruCihodaru/linux-loader?branch=debug_trait#16bd28a6c8658ea90a5bfae1f9817708b65649ea"
+dependencies = [
+ "vm-memory 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "log"
@@ -765,11 +765,11 @@ dependencies = [
  "cpuid 0.1.0",
  "criterion 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "devices 0.1.0",
- "kernel 0.1.0",
  "kvm-bindings 0.3.0 (git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.3.0-3)",
  "kvm-ioctls 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.81 (registry+https://github.com/rust-lang/crates.io-index)",
+ "linux-loader 0.2.0 (git+https://github.com/AlexandruCihodaru/linux-loader?branch=debug_trait)",
  "logger 0.1.0",
  "mmds 0.1.0",
  "polly 0.0.1",
@@ -922,6 +922,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum kvm-ioctls 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "158d15da895bddca8223fa31dc9e8b9317bdc2fbc4635dea8dd575fc40dae37f"
 "checksum lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 "checksum libc 0.2.81 (registry+https://github.com/rust-lang/crates.io-index)" = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
+"checksum linux-loader 0.2.0 (git+https://github.com/AlexandruCihodaru/linux-loader?branch=debug_trait)" = "<none>"
 "checksum log 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)" = "4fabed175da42fed1fa0746b0ea71f412aa9d35e76e95e59b192c64b9dc2bf8b"
 "checksum memchr 2.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 "checksum memoffset 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "157b4208e3059a8f9e78d559edc658e13df41410cb3ae03979c83130067fdd87"
