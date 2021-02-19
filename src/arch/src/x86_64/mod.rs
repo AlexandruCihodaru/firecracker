@@ -163,7 +163,7 @@ pub fn configure_system(
         &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),
         guest_mem,
     )
-    .map_err(|_| Error::ZeroPageSetup)
+        .map_err(|_| Error::ZeroPageSetup)
 }
 
 /// Add an e820 region to the e820 map.
