@@ -39,7 +39,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
- "vm-memory 0.1.0",
+ "vm-memory",
 ]
 
 [[package]]
@@ -300,7 +300,7 @@ dependencies = [
  "versionize",
  "versionize_derive",
  "virtio_gen",
- "vm-memory 0.1.0",
+ "vm-memory",
  "vm-superio",
 ]
 
@@ -417,7 +417,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "utils",
- "vm-memory 0.1.0",
+ "vm-memory",
 ]
 
 [[package]]
@@ -988,18 +988,8 @@ version = "0.1.0"
 
 [[package]]
 name = "vm-memory"
-version = "0.1.0"
-dependencies = [
- "libc",
- "vm-memory 0.4.0",
- "vmm-sys-util",
-]
-
-[[package]]
-name = "vm-memory"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45b5b0a6f371f8147143b1adb95edddafc9cb9e40adaf94edb6f93a1d04b0330"
+version = "0.5.0"
+source = "git+https://github.com/rust-vmm/vm-memory#5bd7138758183a73ac0da27ce40c004d95f1a7e9"
 dependencies = [
  "libc",
  "winapi",
@@ -1035,7 +1025,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
- "vm-memory 0.1.0",
+ "vm-memory",
  "vm-superio",
 ]
 
