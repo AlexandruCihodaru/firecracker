@@ -302,6 +302,7 @@ dependencies = [
  "virtio_gen",
  "vm-memory 0.1.0",
  "vm-superio",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1007,9 +1008,12 @@ dependencies = [
 
 [[package]]
 name = "vm-superio"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e04e8579e93095777eaf185dcfe0d9cfa824615be0100af4f965b7e35bdffd04"
+version = "0.2.0"
+source = "git+https://github.com/AlexandruCihodaru/vm-superio.git?branch=kick_serial_poc#ba91151971cbde8714b923ac988887f0eaed4d2f"
+dependencies = [
+ "libc",
+ "vmm-sys-util",
+]
 
 [[package]]
 name = "vmm"

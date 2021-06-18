@@ -6,11 +6,16 @@
 // found in the THIRD-PARTY file.
 #![cfg(target_arch = "x86_64")]
 
+use libc::EFD_NONBLOCK;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use devices::legacy::EventFdTrigger;
 use kvm_ioctls::VmFd;
 use utils::eventfd::EventFd;
+use vm_superio::serial::NoEvents;
+use vm_superio::Serial;
+use std::io;
 
 /// Errors corresponding to the `PortIODeviceManager`.
 #[derive(Debug)]
@@ -33,26 +38,24 @@ impl fmt::Display for Error {
 }
 
 type Result<T> = ::std::result::Result<T, Error>;
+pub type SerialDevice = Serial<EventFdTrigger, NoEvents, Box<dyn io::Write + Send>>;
 
 /// The `PortIODeviceManager` is a wrapper that is used for registering legacy devices
 /// on an I/O Bus. It currently manages the uart and i8042 devices.
 /// The `LegacyDeviceManger` should be initialized only by using the constructor.
 pub struct PortIODeviceManager {
     pub io_bus: devices::Bus,
-    pub stdio_serial: Arc<Mutex<devices::legacy::Serial>>,
+    pub stdio_serial: Arc<Mutex<SerialDevice>>,
     pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
 
-    pub com_evt_1_3: EventFd,
-    pub com_evt_2_4: EventFd,
+    pub com_evt_1_3: EventFdTrigger,
+    pub com_evt_2_4: EventFdTrigger,
     pub kbd_evt: EventFd,
 }
 
 impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(
-        serial: Arc<Mutex<devices::legacy::Serial>>,
-        i8042_reset_evfd: EventFd,
-    ) -> Result<Self> {
+    pub fn new(serial: Arc<Mutex<SerialDevice>>, i8042_reset_evfd: EventFd) -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
@@ -60,7 +63,7 @@ impl PortIODeviceManager {
             .interrupt_evt()
             .try_clone()
             .map_err(Error::EventFd)?;
-        let com_evt_2_4 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+        let com_evt_2_4 = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(

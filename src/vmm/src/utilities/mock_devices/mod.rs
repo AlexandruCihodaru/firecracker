@@ -5,8 +5,7 @@
 use std::fs::File;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
-
-use devices::legacy::ReadableFd;
+use vm_superio::serial::ReadableFd;
 
 pub struct MockSerialInput(pub File);
 
