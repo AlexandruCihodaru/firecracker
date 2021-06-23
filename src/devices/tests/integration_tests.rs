@@ -3,13 +3,17 @@
 
 mod serial_utils;
 
+use logger::METRICS;
+use libc::EFD_NONBLOCK;
+use devices::legacy::EventFdTrigger;
+use devices::legacy::SerialWrapper;
+use vm_superio::Serial;
 use std::io;
 use std::os::raw::{c_int, c_void};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, SubscriberOps};
 
-use devices::legacy::Serial;
 use devices::BusDevice;
 use serial_utils::MockSerialInput;
 use utils::eventfd::EventFd;
@@ -23,12 +27,14 @@ fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
     // Serial input is the reading end of the pipe.
     let serial_in = MockSerialInput(fds[0]);
     let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
+    let serial = Arc::new(Mutex::new(SerialWrapper(Serial::with_events(
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+        METRICS.uart.clone(),
         Box::new(io::stdout()),
+        Some(Box::new(serial_in)),
+        
         Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    ))));
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };
@@ -147,12 +153,14 @@ fn test_issue_hangup() {
     // Serial input is the reading end of the pipe.
     let serial_in = MockSerialInput(fds[0]);
     let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
+    let serial = Arc::new(Mutex::new(SerialWrapper(Serial::with_events(
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+        METRICS.uart.clone(),
         Box::new(io::stdout()),
+        Some(Box::new(serial_in)),
+        
         Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    ))));
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };
@@ -185,12 +193,14 @@ fn test_issue_serial_hangup_anon_pipe_while_unregistered_stdin() {
     // Serial input is the reading end of the pipe.
     let serial_in = MockSerialInput(fds[0]);
     let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
+    let serial = Arc::new(Mutex::new(SerialWrapper(Serial::with_events(
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+        METRICS.uart.clone(),
         Box::new(io::stdout()),
+        Some(Box::new(serial_in)),
+        
         Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    ))));
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };

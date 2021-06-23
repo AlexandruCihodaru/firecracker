@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 mod init;
 mod logger;
-mod metrics;
+pub mod metrics;
 
 use std::sync::LockResult;
-
+extern crate vm_superio;
 pub use crate::logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
 pub use crate::metrics::RTCDeviceMetrics;
 pub use crate::metrics::{
-    IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
-    METRICS,
+    IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
+    SharedStoreMetric, StoreMetric, METRICS,
 };
 pub use log::Level::*;
 pub use log::*;

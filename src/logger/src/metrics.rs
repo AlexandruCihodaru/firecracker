@@ -68,14 +68,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use super::extract_guard;
 #[cfg(target_arch = "aarch64")]
 use crate::warn;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
+use std::sync::Arc;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::rtc_pl031::RTCEvents;
-
-use super::extract_guard;
+use vm_superio::serial::SerialEvents;
 
 lazy_static! {
     /// Static instance used for handling metrics.
@@ -672,6 +673,20 @@ pub struct SerialDeviceMetrics {
     pub write_count: SharedIncMetric,
 }
 
+impl SerialEvents for SerialDeviceMetrics {
+    fn buffer_read(&self) {
+        self.read_count.inc();
+    }
+
+    fn out_byte(&self) {
+        self.write_count.inc();
+    }
+
+    fn tx_lost_byte(&self) {
+        self.missed_write_count.inc();
+    }
+}
+
 /// Metrics related to signals.
 #[derive(Default, Serialize)]
 pub struct SignalMetrics {
@@ -810,7 +825,7 @@ pub struct FirecrackerMetrics {
     /// Metrics related to the virtual machine manager.
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
-    pub uart: SerialDeviceMetrics,
+    pub uart: Arc<SerialDeviceMetrics>,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
     /// Metrics related to virtio-vsockets.
